@@ -1,0 +1,51 @@
+# ------------------------------------------------------------------
+# Configuración de pre-commit — https://pre-commit.com
+# Actualiza los `rev` con:  pre-commit autoupdate
+# ------------------------------------------------------------------
+
+minimum_pre_commit_version: "3.5.0"
+
+# Instala los TRES tipos de hook con un solo `pre-commit install`
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+default_stages: [pre-commit]
+
+# ----- pre-commit.ci: corre los hooks automáticamente en tus PRs -----
+# ci:
+#   autofix_commit_msg: "style: correcciones automáticas de pre-commit.ci"
+#   autofix_prs: true                    # aplica los --fix y los commitea al PR
+#   autoupdate_commit_msg: "chore: autoupdate de hooks de pre-commit.ci"
+#   autoupdate_schedule: monthly         # actualiza los `rev` cada mes
+#   skip: [commitizen, commitizen-branch]  # no aplican en CI (ver nota abajo)
+
+repos:
+  # ----- Higiene general de archivos -----
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=5000]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ----- Ruff: linter + formateador (reglas en pyproject.toml) -----
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # ----- Commitizen: valida el MENSAJE del commit -----
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.17.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]           # valida el mensaje al hacer commit
+      - id: commitizen-branch
+        stages: [pre-push]             # valida TODOS los mensajes de la rama al hacer push

@@ -1,0 +1,91 @@
+# ============================================================================
+# [project] — Metadatos estándar del proyecto (PEP 621).
+# Es la forma moderna y agnóstica de declarar la información del paquete;
+# Poetry 2.x la lee de aquí en lugar de la antigua tabla [tool.poetry].
+# ============================================================================
+[project]
+name = "mlops-module"                  # Nombre de distribución del paquete.
+version = "0.1.0"                       # commitizen la subirá con `cz bump`.
+description = "Package mlops"    # Descripción corta.
+authors = [
+    {name = "Carlos Galve Mateo", email = "carlosgalvemateo@micorreo.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<4.0"         # Python 3.12 o superior.
+
+# Dependencias de tiempo de ejecución.
+dependencies = [
+    "numpy (>=2.5.1,<3.0.0)",
+    "pandas (>=3.0.5,<4.0.0)",          # OJO: pandas 3.x tiene breaking changes vs 2.x (CoW, PyArrow strings).
+    "joblib (>=1.5.3,<2.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "python-box (>=7.4.1,<8.0.0)",
+    "kaggle (>=2.2.4,<3.0.0)",
+    "scikit-learn (>=1.9.0,<2.0.0)",
+    "xgboost (>=3.4.0,<4.0.0)",
+    "uvicorn (>=0.52.1,<0.53.0)",
+    "fastapi (>=0.141.1,<0.142.0)"
+]
+
+# ============================================================================
+# [tool.poetry] — Config específica de Poetry que NO cubre PEP 621.
+# ============================================================================
+[tool.poetry]
+# src layout: el paquete "mlops" vive en src/mlops.
+packages = [
+    { include = "mlops", from = "src" }
+]
+
+# ============================================================================
+# [build-system] — Cómo se construye el paquete.
+# ============================================================================
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ============================================================================
+# [dependency-groups] — Grupos de dependencias (PEP 735).
+# ============================================================================
+[dependency-groups]
+dev = [
+    "pre-commit (>=4.6.1,<5.0.0)",
+    "commitizen (>=4.17.0,<5.0.0)"
+]
+
+# ============================================================================
+# [tool.pytest.ini_options] — Configuración de pytest.
+# ============================================================================
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"                      # -ra: resumen de fallos/skips; -q: salida concisa.
+testpaths = ["tests"]
+
+# ============================================================================
+# [tool.ruff] — Linter/formateador.
+# NOTA: la autocorrección (`--fix`) se aplica desde el hook de pre-commit,
+# NO aquí, para que en CI/local `ruff check` solo REPORTE sin mutar el código.
+# ============================================================================
+[tool.ruff]
+line-length = 88                        # Estándar de black.
+target-version = "py312"                # Coincide con requires-python.
+
+[tool.ruff.lint]
+# I: imports (isort) · F: Pyflakes · E/W: pycodestyle.
+select = ["I", "F", "E", "W"]
+# fixable = ["I", "F", "E", "W"]        # (Opcional) limitar qué familias se autocorrigen.
+
+[tool.ruff.format]
+quote-style = "double"                  # Comillas dobles.
+docstring-code-format = true            # Formatea también el código dentro de docstrings.
+
+# ============================================================================
+# [tool.commitizen] — Conventional Commits + versionado automático.
+# ============================================================================
+[tool.commitizen]
+name = "cz_conventional_commits"        # feat:, fix:, build:, chore:, etc.
+version_provider = "pep621"             # Versión leída/escrita en [project]: fuente única de verdad.
+tag_format = "v$version"                # Etiquetas: v0.1.0, v0.2.0…
+# No listar pyproject.toml aquí: ya lo gestiona version_provider = "pep621".
+version_files = [
+    "src/mlops/_version.py:__version__"
+]
