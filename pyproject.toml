@@ -5,7 +5,7 @@
 # ============================================================================
 [project]
 name = "mlops-module"                  # Nombre de distribución del paquete.
-version = "0.2.0"                       # commitizen la subirá con `cz bump`.
+version = "1.0.0"                       # commitizen la subirá con `cz bump`.
 description = "Package mlops academico"    # Descripción corta.
 authors = [
     {name = "Carlos Galve Mateo", email = "carlosgalvemateo@micorreo.com"}

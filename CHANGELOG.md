@@ -1,3 +1,13 @@
+## v1.0.0 (2026-08-13)
+
+### Feat
+
+- **ML-Patttern**: Se incluye funcionalidades del pipeline ML completo sin MLFlow
+
+### Perf
+
+- **Experimentos**: Se incorporan dos experimentos
+
 ## v0.2.0 (2026-08-08)
 
 ### Feat
