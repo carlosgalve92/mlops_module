@@ -1,0 +1,265 @@
+schema: '2.0'
+stages:
+  ingestion:
+    cmd: python src/mlops/pipeline/data_ingestion_pipeline.py
+    deps:
+    - path: src/mlops/components/ingestion/data_ingestion.py
+      hash: md5
+      md5: 11fcd8144cd6c8dd7bbe1792b7177da2
+      size: 658
+    params:
+      config/config.yaml:
+        data_ingestion:
+          root_dir: artifacts/data_ingestion
+          steps:
+          - name: download_file
+            params:
+              source_URL: parisrohan/credit-score-classification
+              local_data_file: artifacts/data_ingestion/train.csv
+    outs:
+    - path: artifacts/data_ingestion/train.csv
+      hash: md5
+      md5: a8b6c93a5ecd8ffb4212340d218b7981
+      size: 31136044
+  validation:
+    cmd: python src/mlops/pipeline/data_validation_pipeline.py
+    deps:
+    - path: artifacts/data_ingestion/train.csv
+      hash: md5
+      md5: a8b6c93a5ecd8ffb4212340d218b7981
+      size: 31136044
+    - path: src/mlops/components/validation/data_validation.py
+      hash: md5
+      md5: c559ef68c74c2bc13d9a9b42a79a2b9d
+      size: 1001
+    params:
+      config/config.yaml:
+        data_validation:
+          root_dir: artifacts/data_validation
+          steps:
+          - name: validate_types_columns
+            params:
+              local_data_file: artifacts/data_ingestion/train.csv
+              status_file: artifacts/data_validation/status.txt
+              schema:
+                ID: str
+                Customer_ID: str
+                Month: str
+                Name: str
+                Age: str
+                SSN: str
+                Occupation: str
+                Annual_Income: str
+                Monthly_Inhand_Salary: float64
+                Num_Bank_Accounts: int64
+                Num_Credit_Card: int64
+                Interest_Rate: int64
+                Num_of_Loan: str
+                Type_of_Loan: str
+                Delay_from_due_date: int64
+                Num_of_Delayed_Payment: str
+                Changed_Credit_Limit: str
+                Num_Credit_Inquiries: float64
+                Credit_Mix: str
+                Outstanding_Debt: str
+                Credit_Utilization_Ratio: float64
+                Credit_History_Age: str
+                Payment_of_Min_Amount: str
+                Total_EMI_per_month: float64
+                Amount_invested_monthly: str
+                Payment_Behaviour: str
+                Monthly_Balance: object
+                Credit_Score: str
+    outs:
+    - path: artifacts/data_validation/status.txt
+      hash: md5
+      md5: 86e6a2f694c57a675b3e2da6b95ff9ba
+      size: 23
+  preprocess:
+    cmd: python src/mlops/pipeline/data_transformation_pipeline.py
+    deps:
+    - path: artifacts/data_ingestion/train.csv
+      hash: md5
+      md5: a8b6c93a5ecd8ffb4212340d218b7981
+      size: 31136044
+    - path: artifacts/data_validation/status.txt
+      hash: md5
+      md5: 86e6a2f694c57a675b3e2da6b95ff9ba
+      size: 23
+    - path: src/mlops/components/transformation/data_transformation.py
+      hash: md5
+      md5: 9a6df398ef393e2d7b76a2cadfc08082
+      size: 3283
+    - path: src/mlops/components/transformation/preprocessors/field_number.py
+      hash: md5
+      md5: 483e21cf40c6639e2b33e75ba4971390
+      size: 1524
+    - path: src/mlops/components/transformation/preprocessors/field_text.py
+      hash: md5
+      md5: 42f91aa0485c5f2c5b0bc03c32dd0140
+      size: 5603
+    - path: 
+        src/mlops/components/transformation/preprocessors/field_text_to_number.py
+      hash: md5
+      md5: 5d933c84ed1dca1dfd496105e61fd3e4
+      size: 856
+    params:
+      config/config.yaml:
+        data_transformation:
+          root_dir: artifacts/data_transformation
+          steps:
+          - name: read_file_data
+            params:
+              local_data_file: artifacts/data_ingestion/train.csv
+          - name: transform_target
+            params:
+              target_column: CREDIT_SCORE
+              category: Poor
+          - name: train_test_splitting
+            params:
+              test_size: 0.25
+              stratify_col: CREDIT_SCORE
+          - name: build_preprocess_ct
+            params:
+              dict_steps:
+                prep_cat:
+                  columns:
+                  - OCCUPATION
+                  steps:
+                  - name: mb_clean_text
+                    params:
+                      replace_value: Missing
+                  - name: mb_woe_encoder
+                    params: {}
+                prep_num:
+                  columns:
+                  - MONTHLY_INHAND_SALARY
+                  - NUM_BANK_ACCOUNTS
+                  - NUM_CREDIT_CARD
+                  - INTEREST_RATE
+                  - DELAY_FROM_DUE_DATE
+                  - NUM_CREDIT_INQUIRIES
+                  - CREDIT_UTILIZATION_RATIO
+                  - TOTAL_EMI_PER_MONTH
+                  steps:
+                  - name: mb_simple_imputer
+                    params: {}
+                  - name: mb_standard_scaler
+                    params: {}
+                prep_cat_num:
+                  columns:
+                  - AGE
+                  - ANNUAL_INCOME
+                  - NUM_OF_LOAN
+                  - NUM_OF_DELAYED_PAYMENT
+                  - CHANGED_CREDIT_LIMIT
+                  - OUTSTANDING_DEBT
+                  - AMOUNT_INVESTED_MONTHLY
+                  - MONTHLY_BALANCE
+                  steps:
+                  - name: mb_clean_text_number
+                    params: {}
+    outs:
+    - path: artifacts/data_transformation/pl_preprocess.joblib
+      hash: md5
+      md5: 622e1bc767c037e4c34f5da129ae46de
+      size: 2112
+    - path: artifacts/data_transformation/test.csv
+      hash: md5
+      md5: 57fbfe42fb4496e1ca1d7f8f51100932
+      size: 7656288
+    - path: artifacts/data_transformation/train.csv
+      hash: md5
+      md5: b31b2a438cf853433fa81f6e1a9f2d8e
+      size: 22926969
+  train:
+    cmd: python src/mlops/pipeline/model_trainer_pipeline.py
+    deps:
+    - path: artifacts/data_transformation/pl_preprocess.joblib
+      hash: md5
+      md5: 622e1bc767c037e4c34f5da129ae46de
+      size: 2112
+    - path: artifacts/data_transformation/train.csv
+      hash: md5
+      md5: b31b2a438cf853433fa81f6e1a9f2d8e
+      size: 22926969
+    - path: src/mlops/components/train/model_trainer.py
+      hash: md5
+      md5: 181b6ca7f4c76ab768ee8767ef08b929
+      size: 1465
+    params:
+      config/config.yaml:
+        model_trainer:
+          root_dir: artifacts/model_trainer
+          steps:
+          - name: read_file_train
+            params:
+              train_file: artifacts/data_transformation/train.csv
+              target_column: CREDIT_SCORE
+          - name: load_pl_preprocess
+            params:
+              pl_preprocess_path: 
+                artifacts/data_transformation/pl_preprocess.joblib
+          - name: create_model
+            params:
+              model: XGBClassifier
+              dict_params:
+                objective: binary:logistic
+                n_estimators: 128
+                max_depth: 8
+                random_state: 202508
+          - name: build_pipeline
+            params: {}
+          - name: train
+            params:
+              model_name: XGBClassifier
+              version: 1.0
+    outs:
+    - path: artifacts/model_trainer/XGBClassifier__1.0.joblib
+      hash: md5
+      md5: c67b0d7fbb6befdc10acb4a000fd5025
+      size: 1278559
+  evaluation:
+    cmd: python src/mlops/pipeline/model_evaluation_pipeline.py
+    deps:
+    - path: artifacts/data_transformation/pl_preprocess.joblib
+      hash: md5
+      md5: 622e1bc767c037e4c34f5da129ae46de
+      size: 2112
+    - path: artifacts/data_transformation/test.csv
+      hash: md5
+      md5: 57fbfe42fb4496e1ca1d7f8f51100932
+      size: 7656288
+    - path: artifacts/data_transformation/train.csv
+      hash: md5
+      md5: b31b2a438cf853433fa81f6e1a9f2d8e
+      size: 22926969
+    - path: artifacts/model_trainer/XGBClassifier__1.0.joblib
+      hash: md5
+      md5: c67b0d7fbb6befdc10acb4a000fd5025
+      size: 1278559
+    - path: src/mlops/components/evaluation/model_evaluation.py
+      hash: md5
+      md5: 9826a47986080820da6f20485a19c27c
+      size: 1999
+    params:
+      config/config.yaml:
+        model_evaluation:
+          root_dir: artifacts/model_evaluation
+          steps:
+          - name: read_files
+            params:
+              train_data_path: artifacts/data_transformation/train.csv
+              test_data_path: artifacts/data_transformation/test.csv
+              target_column: CREDIT_SCORE
+          - name: get_metrics_model
+            params:
+              path_model: artifacts/model_trainer
+              local_metrics_file: artifacts/model_evaluation/metrics.json
+              model_name: XGBClassifier
+              version: 1.0
+    outs:
+    - path: artifacts/model_evaluation/metrics.json
+      hash: md5
+      md5: 0c7b22ed6caa8a80c06ce1a8a4dfe115
+      size: 311

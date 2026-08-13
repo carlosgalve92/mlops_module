@@ -119,7 +119,7 @@ model_trainer:
         dict_params:
           objective: binary:logistic
           n_estimators: 128
-          max_depth: 4
+          max_depth: 8
           random_state: 202508
     - name: build_pipeline
       params: {}
