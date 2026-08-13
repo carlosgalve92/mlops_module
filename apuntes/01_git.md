@@ -258,10 +258,10 @@ El **merge** combina los cambios de dos ramas. Existen distintas estrategias:
 
 | Estrategia | Qué hace |
 |---|---|
-| **Merge Commit** | Crea un nuevo commit de fusión; conserva la rama auxiliar. |
-| **Squash Merge** | Agrupa todos los commits de la rama auxiliar en uno solo al final de la rama principal; borra la auxiliar. |
-| **Rebase and Merge** | Reubica todos los commits de la *feature* a continuación del último commit de la principal; borra la auxiliar. |
-| **Fast Forward** | Avanza el puntero de la principal hasta la auxiliar; no genera commit de fusión. |
+| **Merge Commit** | Crea un nuevo commit de fusión; conserva la rama auxiliar. (merge --no-ff) |
+| **Squash Merge** | Agrupa todos los commits de la rama auxiliar en uno solo al final de la rama principal; borra la auxiliar. (merge --squash y luego commit) |
+| **Rebase and Merge** | Reubica todos los commits de la *feature* a continuación del último commit de la principal; borra la auxiliar. (rebase y luego merge )|
+| **Fast Forward** | Avanza el puntero de la principal hasta la auxiliar; no genera commit de fusión. (merge --ff-only) |
 
 ![Merge Commit](../images/merge_commit.JPG)
 ![Squash Merge](../images/squash_merge.JPG)
