@@ -1,0 +1,65 @@
+stages:
+  ingestion:
+    cmd: python src/mlops/pipeline/data_ingestion_pipeline.py
+    deps:
+      - src/mlops/components/ingestion/data_ingestion.py
+    params:
+      - config/config.yaml:
+          - data_ingestion
+    outs:
+      - artifacts/data_ingestion/train.csv
+
+  validation:
+    cmd: python src/mlops/pipeline/data_validation_pipeline.py
+    deps:
+      - artifacts/data_ingestion/train.csv
+      - src/mlops/components/validation/data_validation.py
+    params:
+      - config/config.yaml:
+          - data_validation
+    outs:
+      - artifacts/data_validation/status.txt
+
+  preprocess:
+    cmd: python src/mlops/pipeline/data_transformation_pipeline.py
+    deps:
+      - artifacts/data_ingestion/train.csv
+      - artifacts/data_validation/status.txt
+      - src/mlops/components/transformation/data_transformation.py
+      - src/mlops/components/transformation/preprocessors/field_number.py
+      - src/mlops/components/transformation/preprocessors/field_text.py
+      - src/mlops/components/transformation/preprocessors/field_text_to_number.py
+    params:
+      - config/config.yaml:
+          - data_transformation
+    outs:
+      - artifacts/data_transformation/pl_preprocess.joblib
+      - artifacts/data_transformation/train.csv
+      - artifacts/data_transformation/test.csv
+
+  train:
+    cmd: python src/mlops/pipeline/model_trainer_pipeline.py
+    deps:
+      - artifacts/data_transformation/pl_preprocess.joblib
+      - artifacts/data_transformation/train.csv
+      - src/mlops/components/train/model_trainer.py
+    params:
+      - config/config.yaml:
+          - model_trainer
+    outs:
+      - artifacts/model_trainer/XGBClassifier__1.0.joblib
+
+  evaluation:
+    cmd: python src/mlops/pipeline/model_evaluation_pipeline.py
+    deps:
+      - artifacts/data_transformation/pl_preprocess.joblib
+      - artifacts/data_transformation/train.csv
+      - artifacts/data_transformation/test.csv
+      - artifacts/model_trainer/XGBClassifier__1.0.joblib
+      - src/mlops/components/evaluation/model_evaluation.py
+    params:
+      - config/config.yaml:
+          - model_evaluation
+    metrics:
+      - artifacts/model_evaluation/metrics.json:
+          cache: false
