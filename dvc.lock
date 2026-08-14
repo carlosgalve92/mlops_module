@@ -98,7 +98,7 @@ stages:
       hash: md5
       md5: 42f91aa0485c5f2c5b0bc03c32dd0140
       size: 5603
-    - path:
+    - path: 
         src/mlops/components/transformation/preprocessors/field_text_to_number.py
       hash: md5
       md5: 5d933c84ed1dca1dfd496105e61fd3e4
@@ -198,7 +198,7 @@ stages:
               target_column: CREDIT_SCORE
           - name: load_pl_preprocess
             params:
-              pl_preprocess_path:
+              pl_preprocess_path: 
                 artifacts/data_transformation/pl_preprocess.joblib
           - name: create_model
             params:
@@ -240,8 +240,8 @@ stages:
       size: 231503
     - path: src/mlops/components/evaluation/model_evaluation.py
       hash: md5
-      md5: 9826a47986080820da6f20485a19c27c
-      size: 1999
+      md5: 51286df189ff2d9ab36355560a4582b4
+      size: 9157
     params:
       config/config.yaml:
         model_evaluation:
