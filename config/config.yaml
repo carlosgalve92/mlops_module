@@ -118,8 +118,8 @@ model_trainer:
         model: XGBClassifier
         dict_params:
           objective: binary:logistic
-          n_estimators: 128
-          max_depth: 4
+          n_estimators: 32
+          max_depth: 2
           random_state: 202508
     - name: build_pipeline
       params: {}
@@ -132,18 +132,23 @@ model_trainer:
 model_evaluation:
   root_dir: artifacts/model_evaluation
   steps:
-    - name: read_files
-      params:
-        train_data_path: artifacts/data_transformation/train.csv
-        test_data_path: artifacts/data_transformation/test.csv
-        target_column: CREDIT_SCORE
-    - name: get_metrics_model
-      params:
-        path_model: artifacts/model_trainer
-        local_metrics_file: artifacts/model_evaluation/metrics.json
-        model_name: XGBClassifier
-        version: 1.0
-
+  - name: read_files
+    params:
+      train_data_path: artifacts/data_transformation/train.csv
+      test_data_path: artifacts/data_transformation/test.csv
+      target_column: CREDIT_SCORE
+  # - name: get_metrics_model
+  #   params:
+  #     path_model: artifacts/model_trainer
+  #     local_metrics_file: artifacts/model_evaluation/metrics.json
+  #     model_name: XGBClassifier
+  #     version: 1.0
+  - name: log_into_mlflow
+    params:
+      path_model: artifacts/model_trainer
+      local_metrics_file: artifacts/model_evaluation/metrics.json
+      model_name: XGBClassifier
+      version: 1.0
 
 production:
   model_name: XGBClassifier

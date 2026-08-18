@@ -205,8 +205,8 @@ stages:
               model: XGBClassifier
               dict_params:
                 objective: binary:logistic
-                n_estimators: 128
-                max_depth: 4
+                n_estimators: 32
+                max_depth: 2
                 random_state: 202508
           - name: build_pipeline
             params: {}
@@ -217,8 +217,8 @@ stages:
     outs:
     - path: artifacts/model_trainer/XGBClassifier__1.0.joblib
       hash: md5
-      md5: 1a8dcc5827df484ac58043c8c008b258
-      size: 231503
+      md5: d3e5a48ff5020cb065ae9df27da6d202
+      size: 45685
   evaluation:
     cmd: python src/mlops/pipeline/model_evaluation_pipeline.py
     deps:
@@ -236,12 +236,12 @@ stages:
       size: 22926969
     - path: artifacts/model_trainer/XGBClassifier__1.0.joblib
       hash: md5
-      md5: 1a8dcc5827df484ac58043c8c008b258
-      size: 231503
+      md5: d3e5a48ff5020cb065ae9df27da6d202
+      size: 45685
     - path: src/mlops/components/evaluation/model_evaluation.py
       hash: md5
-      md5: 9826a47986080820da6f20485a19c27c
-      size: 1999
+      md5: ebe973590900cb1196c4cb9695b7a899
+      size: 9157
     params:
       config/config.yaml:
         model_evaluation:
@@ -252,7 +252,7 @@ stages:
               train_data_path: artifacts/data_transformation/train.csv
               test_data_path: artifacts/data_transformation/test.csv
               target_column: CREDIT_SCORE
-          - name: get_metrics_model
+          - name: log_into_mlflow
             params:
               path_model: artifacts/model_trainer
               local_metrics_file: artifacts/model_evaluation/metrics.json
@@ -261,5 +261,5 @@ stages:
     outs:
     - path: artifacts/model_evaluation/metrics.json
       hash: md5
-      md5: 1da1a0b19c0f010c84b6108d8c169046
-      size: 311
+      md5: e264aeecf07024e95082e946ef1e2747
+      size: 309

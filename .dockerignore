@@ -1,0 +1,16 @@
+.git
+.github
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.env
+.venv
+venv/
+.DS_Store
+.dvc/cache/
+.dvc/tmp/
+data/
+artifacts/
+apuntes/
