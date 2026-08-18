@@ -1,3 +1,9 @@
+## v2.0.0 (2026-08-18)
+
+### Feat
+
+- **image-docker-&-app**: Se crea codigo app y dockerfile
+
 ## v1.0.0 (2026-08-13)
 
 ### Feat
