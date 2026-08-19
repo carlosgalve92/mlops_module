@@ -7,16 +7,16 @@
 #  que no se almacenan credenciales de larga duración como secretos.
 # =============================================================================
 
-name: CD API
+name: Deployment
 
 # -----------------------------------------------------------------------------
 # Disparadores: QUÉ lanza el workflow.
-#   - push a master  -> despliegue automático al integrar en la rama principal.
+#   - push a main  -> despliegue automático al integrar en la rama principal.
 #   - workflow_dispatch -> permite ejecutarlo manualmente desde la pestaña Actions.
 # -----------------------------------------------------------------------------
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
     # paths:                 # (opcional) dispara solo si cambian estas rutas
     #   - 'src/**'
   # schedule:                # (opcional) ejecución programada
@@ -46,7 +46,7 @@ permissions:
 #       (Consumption): 0.25->0.5Gi, 0.5->1.0Gi, 0.75->1.5Gi, 1.0->2.0Gi...
 # -----------------------------------------------------------------------------
 env:
-  IMAGE_REPO: webinar_imagen
+  IMAGE_REPO: containeregistrymlops
   CPU: "0.5"
   MEMORY: "1.0Gi"
   PORT: "8000"
@@ -84,7 +84,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: 'poetry'
 
       # Instala el proyecto con Poetry y, con él, la CLI de DVC que se usa después.
@@ -151,12 +151,12 @@ jobs:
 
   # ===========================================================================
   # JOB 2 · release
-  # Solo se ejecuta si build-test terminó OK (needs) y estamos en master (if).
+  # Solo se ejecuta si build-test terminó OK (needs) y estamos en main (if).
   # Publica la imagen en ACR y despliega una nueva revisión en ACA.
   # ===========================================================================
   release:
     needs: build-test
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -174,7 +174,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: 'poetry'
 
       - name: Instalar dependencias
