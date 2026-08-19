@@ -19,7 +19,7 @@ FROM python:3.12-slim
 # ---------------------------------------------------------------------------
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=1.8.3 \
+    POETRY_VERSION=2.3.0 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_CREATE=false
 # PYTHONDONTWRITEBYTECODE=1
@@ -73,7 +73,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ---------------------------------------------------------------------------
 # DIRECTORIO DE TRABAJO
 # ---------------------------------------------------------------------------
-WORKDIR /webinar
+WORKDIR /mlops_module
 # QUÉ HACE: fija el directorio de trabajo dentro del contenedor y lo crea si no existe.
 # POR QUÉ: a partir de aquí todos los comandos (COPY, RUN, CMD) se ejecutan desde /webinar.
 #          Evita rutas absolutas y mantiene el código ordenado en un sitio.
@@ -110,7 +110,8 @@ COPY . .
 #          código no invalida la capa de dependencias. Cambias código -> rebuild rápido;
 #          cambias dependencias -> rebuild completo.
 
-RUN poetry install --only main
+RUN poetry install
+# --only main
 # QUÉ HACE: ahora sí instala TU paquete (sin volver a bajar dependencias, que ya están).
 # POR QUÉ: registra tu proyecto en el entorno para que sea importable/ejecutable.
 #          Es rápido porque el trabajo pesado ya se hizo antes.
@@ -119,7 +120,8 @@ RUN poetry install --only main
 # ---------------------------------------------------------------------------
 # USUARIO SIN PRIVILEGIOS (seguridad)
 # ---------------------------------------------------------------------------
-RUN useradd --create-home appuser
+RUN useradd --create-home appuser \
+    && chown -R appuser:appuser /mlops_module
 USER appuser
 # QUÉ HACEN: crean un usuario normal con su carpeta home y cambian a él para el resto del
 #            build y la ejecución.

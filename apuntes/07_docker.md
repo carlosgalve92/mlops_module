@@ -202,6 +202,162 @@ En la primera línea se puede indicar la versión de la sintaxis de construcció
 
 ---
 
+## Despliegue en Azure: del registro de contenedores a Azure Container Apps
+
+Una vez construida la imagen, el siguiente paso para llevar la aplicación a producción consiste en **publicarla en un registro de contenedores remoto** y, desde ahí, **desplegarla en un servicio de ejecución**. En Azure este flujo se apoya en dos servicios:
+
+- **Azure Container Registry (ACR):** registro privado y gestionado donde se almacenan las imágenes (el equivalente privado a Docker Hub). Es el "repositorio remoto" al que se sube la imagen.
+- **Azure Container Apps (ACA):** plataforma *serverless* que ejecuta contenedores sin necesidad de gestionar la infraestructura subyacente (a diferencia de Kubernetes). Descarga la imagen desde el ACR, la ejecuta y, opcionalmente, la expone a Internet.
+
+El flujo completo es: **construir la imagen → subirla al ACR → conceder permisos de lectura → desplegar en Container Apps**. Todos los **recursos** y **permisos** se crean desde el [portal de Azure](https://portal.azure.com); el único paso que requiere la línea de comandos es la **subida de la imagen**, ya que un *push* de Docker no puede realizarse desde la interfaz gráfica. Tanto la subida como la descarga se autentican mediante **identidades administradas** (*managed identities*), sin contraseñas.
+
+### Requisitos previos
+
+- Una cuenta de Azure con una **suscripción activa** y permisos para crear recursos y asignar roles (rol `Owner`, o la combinación `Contributor` + `User Access Administrator` sobre el grupo de recursos).
+- Docker instalado en la máquina desde la que se sube la imagen. Para autenticarse con `az login --identity`, esa máquina debe ser un recurso de Azure con una **identidad administrada** asignada (p. ej. una VM de Azure) que tenga el rol `AcrPush` y `Reader` sobre el registro.
+
+### Paso 1: crear el grupo de recursos (portal)
+
+El **grupo de recursos** es el contenedor lógico que agrupa todos los recursos relacionados.
+
+1. En el portal, busca **"Grupos de recursos"** en la barra superior y ábrelo.
+2. Pulsa **Crear**.
+3. Selecciona la **suscripción**, asigna un **nombre** al grupo (p. ej. `mi-grupo`) y elige la **región** (p. ej. *West Europe*).
+4. Pulsa **Revisar y crear** → **Crear**.
+
+### Paso 2: crear el Azure Container Registry (portal)
+
+El **ACR** es el registro remoto donde se almacenarán las imágenes.
+
+1. Busca **"Container Registries"** (Registros de contenedor) en la barra superior y pulsa **Crear**.
+2. En la pestaña **Aspectos básicos**:
+   - **Suscripción** y **grupo de recursos**: los creados en el paso anterior.
+   - **Nombre del registro**: único a nivel global, solo minúsculas y números (p. ej. `miregistro`). Formará el servidor de acceso `miregistro.azurecr.io`.
+   - **Ubicación**: la misma región del grupo de recursos.
+   - **SKU**: `Basic` es suficiente para empezar (`Standard` y `Premium` añaden más capacidad y funciones como *geo-replicación* o *private endpoints*).
+3. Pulsa **Revisar y crear** → **Crear**.
+
+### Paso 3: subir la imagen al registro (línea de comandos con identidad administrada)
+
+Este es el único paso que **no** puede hacerse desde el portal. En lugar de credenciales de usuario, la CLI de Azure se autentica con la **identidad administrada** de la máquina y obtiene un *token* temporal para Docker. La identidad usada debe tener el rol `AcrPush` sobre el registro (se concede desde **Control de acceso (IAM)** del ACR, igual que el `AcrPull` del Paso 5).
+
+```bash
+# 1. Autenticar la CLI con la identidad administrada del recurso (p. ej. la VM de Azure)
+az login --identity
+#    Para una identidad de usuario concreta: az login --identity --username <client_id>
+
+# 2. Obtener credenciales temporales del registro para Docker
+az acr login --name miregistro
+
+# 3. Etiquetar la imagen local con la ruta del ACR
+docker tag mi-app:v1 miregistro.azurecr.io/mi-app:v1
+
+# 4. Subir la imagen
+docker push miregistro.azurecr.io/mi-app:v1
+```
+
+`az acr login` configura el cliente de Docker con un *token* temporal derivado de la identidad; **no** almacena usuario ni contraseña. Para comprobar que la imagen quedó almacenada, en el portal abre el registro → **Servicios** → **Repositorios**; debería aparecer `mi-app` con su etiqueta `v1`.
+
+#### Etiquetar la imagen con el commit de Git (primer *push* manual)
+
+En lugar de una etiqueta fija como `v1`, conviene ligar cada imagen al **commit** que la generó, para saber con exactitud qué código corre en cada versión. El *hash* del commit se obtiene con `git rev-parse` y se reutiliza como etiqueta. Este es el **primer** *push*, que debe hacerse **antes** de crear la app (el asistente del Paso 5 seleccionará esta etiqueta):
+
+```bash
+# Etiqueta a partir del hash completo del commit (prefijo "gh-" para identificar el origen)
+TAG=gh-$(git rev-parse HEAD)        # p. ej. gh-a1b2c3d4...  (40 caracteres)
+
+# Autenticación (igual que arriba)
+az login --identity
+az acr login --name miregistro
+
+# Construir, etiquetar y subir con la etiqueta del commit
+docker build -t miregistro.azurecr.io/mi-app:$TAG .
+docker push miregistro.azurecr.io/mi-app:$TAG
+
+echo "Etiqueta subida: $TAG"        # anótala para seleccionarla al crear la app
+```
+
+Se usa el *hash* **completo** (`git rev-parse HEAD`, 40 caracteres) en lugar del corto (`--short`) para que coincida con el que produciría un *pipeline* de CI/CD basado en `github.sha`. Para listar las etiquetas presentes en el registro:
+
+```bash
+az acr repository show-tags --name miregistro --repository mi-app --output table
+```
+
+> El *hash* solo refleja lo que está **confirmado** en Git. Si construyes con cambios locales sin confirmar, la etiqueta no representará fielmente el código; confirma (*commit*) antes de construir.
+
+### Paso 4: crear el entorno de Container Apps (portal)
+
+El **entorno** de Container Apps es la frontera de red y de observabilidad que comparten las apps, y es quien aloja la **identidad de sistema** que se usará para descargar la imagen. Debe existir antes de crear la app para poder seleccionarlo:
+
+1. Busca **"Container Apps Environments"** (Entornos de Container Apps) en el portal y pulsa **Crear**.
+2. En **Aspectos básicos**: selecciona la **suscripción**, el **grupo de recursos**, asigna un **nombre** (p. ej. `mi-entorno`) y la **región**.
+3. Pulsa **Revisar y crear** → **Crear**.
+
+> No es necesario habilitar la identidad del entorno ni asignar el rol `AcrPull` a mano: el asistente de creación de la app lo hace **automáticamente** al elegir la identidad del entorno (ver Paso 5). Si se prefiere, puede habilitarse de antemano en **Entorno → Configuración → Identidad → Asignada por el sistema**.
+
+### Paso 5: crear la Container App y configurar la autenticación del registro (portal)
+
+1. Busca **"Container Apps"** en la barra superior y pulsa **Crear**.
+2. En la pestaña **Aspectos básicos**:
+   - **Suscripción** y **grupo de recursos**: los del proyecto.
+   - **Nombre de la aplicación de contenedor** (p. ej. `mi-app`).
+   - **Región**.
+   - **Entorno de Container Apps**: selecciona el **entorno existente** `mi-entorno` (el creado en el Paso 4).
+3. En la pestaña **Contenedor**:
+   - **Desmarca** la casilla *Usar imagen de inicio rápido* (*Use quickstart image*).
+   - **Origen de la imagen**: **Azure Container Registry**.
+   - Selecciona el **registro** (`miregistro`), la **imagen** (`mi-app`) y la **etiqueta** (`v1`).
+4. En el bloque **Autenticación del registro** (*Registry authentication*):
+   - **Tipo de autenticación** (*Authentication type*): **Identidad administrada** (*Managed identity*). La otra opción, *Secrets* (usuario y contraseña), solo está disponible si el ACR tiene habilitado el usuario administrador, que aquí no usamos.
+   - **Identidad administrada** (*Managed identity*): selecciona en el desplegable **`System assigned Identity (environment)`**, es decir, la identidad de sistema del entorno.
+   - **Asignación de rol requerida** (*Required role assignment*): el portal muestra **`ACR pull`** con el ámbito del registro (`Scope: 'miregistro'`) e informa de que *"la nueva identidad administrada tendrá todas las asignaciones de rol necesarias"*. Es decir, el rol `AcrPull` se **crea automáticamente**; no hay que configurarlo a mano.
+5. En la pestaña **Entrada** (*Ingress*):
+   - Activa **Entrada habilitada**.
+   - Tipo de tráfico: **Aceptar tráfico desde cualquier lugar** (equivale a *ingress* **externo**; elige la opción limitada al entorno si la app no debe ser pública).
+   - **Puerto de destino**: el puerto en el que la aplicación escucha dentro del contenedor (el mismo que declara `EXPOSE` en el `Dockerfile`).
+6. Pulsa **Revisar y crear** → **Crear** y espera unos minutos.
+7. Al terminar, abre el recurso: en **Información general** aparece la **URL de la aplicación** (FQDN, p. ej. `https://mi-app.<sufijo>.westeurope.azurecontainerapps.io`), desde la que se accede a la app.
+
+> **Sobre la asignación automática del rol:** para que el portal cree por ti la asignación `AcrPull` necesitas permisos de administración de RBAC (rol `Owner` o `User Access Administrator` sobre el registro o el grupo de recursos). Si no los tienes, o si el despliegue falla por permisos, asígnalo manualmente: **Container Registry → Control de acceso (IAM) → Agregar asignación de roles → `AcrPull` →** miembro de tipo **Entorno de Container Apps** (`mi-entorno`). La propagación puede tardar unos segundos.
+
+> **Requisito del registro:** para autenticarse con identidad administrada, el ACR debe permitir *tokens* de audiencia ARM (comportamiento por defecto en registros actuales). No suele requerir ninguna acción.
+
+> **Identidad de sistema del entorno frente a la de la app:** la identidad de sistema de una *app* no existe hasta que la app se crea, lo que obligaría a arrancar con una imagen pública y actualizar después. La identidad de sistema del **entorno** existe antes que la app y se autoriza en el propio asistente, evitando ese arranque en dos fases.
+
+### Actualizar la aplicación (nueva versión de la imagen)
+
+Cada cambio de código implica reconstruir la imagen, subirla con una **nueva etiqueta** (línea de comandos, mismo método del Paso 3) y, desde el portal, crear una nueva **revisión** que apunte a ella:
+
+```bash
+az login --identity
+az acr login --name miregistro
+docker build -t miregistro.azurecr.io/mi-app:v2 .
+docker push miregistro.azurecr.io/mi-app:v2
+```
+
+1. En el portal, abre la **Container App** → **Administración de revisiones** → **Crear nueva revisión**.
+2. Edita el contenedor y cambia la **etiqueta** de la imagen a `v2` (manteniendo la misma identidad de registro del entorno).
+3. **Crea** la revisión; Container Apps desplegará la nueva versión.
+
+> Es una buena práctica usar **etiquetas versionadas** (`v1`, `v2`, un *hash* de commit…) en lugar de `latest`, para que cada revisión sea trazable y reproducible.
+
+### Resumen de servicios y conceptos de Azure
+
+| Elemento | Servicio / recurso | Se crea o configura en | Función |
+|---|---|---|---|
+| **Grupo de recursos** | Resource Group | Portal | Agrupa lógicamente todos los recursos. |
+| **Registro remoto** | Azure Container Registry (ACR) | Portal | Almacena de forma privada las imágenes Docker. |
+| **Entorno** | Container Apps Environment | Portal | Frontera de red y *logs*; aloja su identidad de sistema. |
+| **Aplicación** | Azure Container App | Portal | Ejecuta el contenedor de forma *serverless*. |
+| **Identidad (descarga)** | Identidad de sistema del *entorno* | Portal (asistente de la app) | Autentica el *pull* del ACR sin contraseñas. |
+| **Permiso de descarga** | Rol `AcrPull` (sobre la identidad del entorno) | Portal (automático en el asistente; o IAM del ACR) | Permite descargar la imagen del ACR. |
+| **Subida de imagen** | `az login --identity` + `az acr login` + `docker push` | Línea de comandos | Publica la imagen local en el registro. |
+| **Permiso de subida** | Rol `AcrPush` (sobre la identidad de la máquina) | Portal (IAM del ACR) | Permite hacer *push* de imágenes al ACR. |
+
+> **Resumen de autenticación:** la **subida** se autentica con la identidad administrada de la máquina de compilación (`az login --identity` + `az acr login`, con rol `AcrPush`); la **descarga** en ejecución usa la **identidad de sistema del entorno** de Container Apps (con rol `AcrPull`). En ningún momento se almacenan usuarios ni contraseñas.
+
+---
+
 ## Apéndice A: instalación de Docker
 
 ### En Windows
@@ -404,3 +560,91 @@ docker run -d --name app -v config:/etc/app:ro mi_imagen
 El **modo** final es opcional: `rw` (lectura y escritura, por defecto) o `ro` (solo lectura). Usar `ro` es una buena práctica de seguridad cuando el contenedor solo necesita **consumir** los datos, no modificarlos.
 
 > **Nota:** al eliminar un contenedor con `docker rm`, sus volúmenes con nombre **no** se borran automáticamente; persisten hasta que se eliminan de forma explícita. Esto protege los datos frente a borrados accidentales del contenedor, pero conviene tenerlo presente para no acumular volúmenes huérfanos (de ahí la utilidad de `docker volume prune`).
+
+---
+
+## Apéndice D: instalación de la CLI de Azure (azure-cli) en la máquina virtual
+
+El Paso 3 del despliegue (subir la imagen) se ejecuta desde una máquina que se autentica con `az login --identity`, lo que requiere tener instalada la **CLI de Azure**. El paquete se llama `azure-cli` y el comando que se usa después es `az`. Este apéndice cubre su instalación en una máquina virtual, con foco en Linux (el caso habitual de una VM de Azure).
+
+### En Linux (Ubuntu/Debian) — método recomendado
+
+Un único comando descarga y ejecuta el script oficial, que añade la clave de firma de Microsoft, configura el repositorio e instala el paquete:
+
+```bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+```
+
+Requiere `curl` y permisos de `sudo`. Está verificado para Ubuntu y Debian; en distribuciones derivadas puede ser necesario el método manual.
+
+### En Linux (Ubuntu/Debian) — método manual por repositorio
+
+Equivale al script anterior paso a paso; es preferible cuando se quiere control explícito o no ejecutar un script como superusuario. Mantiene las actualizaciones dentro de `apt` (`apt-get upgrade`):
+
+```bash
+# 1. Instalar dependencias
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+
+# 2. Importar la clave de firma de Microsoft
+curl -sLS https://packages.microsoft.com/keys/microsoft.asc \
+  | gpg --dearmor \
+  | sudo tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null
+
+# 3. Añadir el repositorio de azure-cli (según la versión de la distribución)
+AZ_DIST=$(lsb_release -cs)
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $AZ_DIST main" \
+  | sudo tee /etc/apt/sources.list.d/azure-cli.list
+
+# 4. Instalar el paquete
+sudo apt-get update
+sudo apt-get install -y azure-cli
+```
+
+### En Linux (RHEL/CentOS/Fedora)
+
+```bash
+# Importar la clave y el repositorio de Microsoft (ajusta la versión de RHEL: 8, 9…)
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo dnf install -y https://packages.microsoft.com/config/rhel/9/packages-microsoft-prod.rpm
+
+# Instalar
+sudo dnf install -y azure-cli
+```
+
+### En Windows (opcional)
+
+Si la VM es Windows, la vía más rápida es el gestor de paquetes:
+
+```powershell
+winget install -e --id Microsoft.AzureCLI
+```
+
+Alternativamente, se puede descargar e instalar el paquete **MSI** oficial. Tras instalar, conviene abrir una nueva terminal para que `az` quede en el `PATH`.
+
+### Verificar la instalación
+
+```bash
+az version
+```
+
+Debe mostrar la versión de `azure-cli` y de sus componentes. Para actualizarla más adelante:
+
+```bash
+az upgrade
+```
+
+### Autenticación con la identidad de la máquina virtual
+
+Una vez instalada la CLI, la VM se autentica con su **identidad administrada** (sin usuario ni contraseña), tal como se usa en el Paso 3. Para ello, la VM debe tener una identidad asignada **con el rol `AcrPush`** sobre el registro:
+
+1. **Asignar la identidad a la VM (portal):** abre la máquina virtual → **Configuración → Identidad**. Activa la **Asignada por el sistema** (o añade una **Asignada por el usuario** en su pestaña) y guarda.
+2. **Conceder `AcrPush` (portal):** en el **Container Registry → Control de acceso (IAM) → Agregar asignación de roles → `AcrPush` →** selecciona la identidad de la VM.
+3. **Iniciar sesión y usar el registro (en la VM):**
+
+```bash
+az login --identity                 # usa la identidad de la VM
+az acr login --name miregistro      # obtiene el token para Docker
+```
+
+> `az login --identity` funciona porque la VM expone su identidad a través del servicio de metadatos de la instancia (IMDS); no requiere navegador ni credenciales, por lo que es ideal en máquinas sin interfaz gráfica. A partir de aquí ya se pueden ejecutar `docker tag` y `docker push` del Paso 3.

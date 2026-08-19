@@ -11,6 +11,7 @@ venv/
 .DS_Store
 .dvc/cache/
 .dvc/tmp/
+.dvc/config.local
 data/
 artifacts/
 apuntes/
