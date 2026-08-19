@@ -5,6 +5,12 @@
 #  Azure Container Registry (ACR) y despliega una nueva revisión en
 #  Azure Container Apps (ACA). La autenticación con Azure usa OIDC, de modo
 #  que no se almacenan credenciales de larga duración como secretos.
+#
+#  ENFOQUE SIN VENV (con Poetry):
+#  Poetry se instala CON el Python de setup-python ('python -m pip install poetry')
+#  en lugar de con pipx. Así, al usar 'virtualenvs.create false', Poetry instala las
+#  dependencias en ESE MISMO intérprete, y 'python -m dvc' las encuentra sin ambigüedad.
+#  Se conserva el poetry.lock como fuente de versiones (reproducibilidad).
 # =============================================================================
 
 name: Deployment
@@ -45,39 +51,44 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Instalar Poetry
-        run: pipx install poetry
-
-      # CORRECCIÓN: 'id: setup-python' para referenciar la ruta EXACTA del intérprete.
+      # CORRECCIÓN: caché de pip (ya no gestionamos el entorno con el venv de Poetry,
+      # sino instalando en el Python del runner).
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'poetry'
+          cache: 'pip'
 
-      # CORRECCIÓN CLAVE: se elimina 'virtualenvs.create false' (causaba que Poetry
-      # instalara en un Python ambiguo, por eso 'python -m dvc' del runner no lo veía)
-      # y se fuerza a Poetry a usar el intérprete de setup-python con 'poetry env use'.
-      # Todo lo que use el proyecto se invoca luego con 'poetry run'.
+      # CORRECCIÓN CLAVE: Poetry instalado CON el Python de setup-python (no con pipx).
+      # Esto ata Poetry a ese intérprete, de modo que 'poetry install' con
+      # 'virtualenvs.create false' deposita las dependencias EXACTAMENTE donde
+      # 'python -m dvc' las va a buscar. Con pipx, Poetry vivía en otro Python
+      # y por eso antes salía 'No module named dvc'.
+      - name: Instalar Poetry
+        run: python -m pip install poetry
+
+      # Sin venv: instala en el Python activo (el del runner). '--sync' deja el
+      # entorno idéntico al lock. Se conserva el poetry.lock (reproducibilidad).
       - name: Instalar dependencias
         run: |
-          poetry env use "${{ steps.setup-python.outputs.python-path }}"
+          poetry config virtualenvs.create false
           poetry install --no-interaction --no-ansi --sync
 
-      # CORRECCIÓN: verificación de DVC dentro del venv de Poetry (mensaje claro).
+      # Verificación temprana: si el lock estuviera desincronizado y no instalara DVC,
+      # esto falla rápido y con un mensaje claro en vez de un críptico error después.
       - name: Verificar DVC instalado
         run: |
-          poetry run python -m dvc --version || {
-            echo "::error::DVC no está en el entorno de Poetry. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+          python -m dvc --version || {
+            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
             exit 1
           }
 
-      # CORRECCIÓN: DVC vía 'poetry run python -m dvc' (usa el venv correcto).
+      # DVC como módulo del mismo Python del runner (sin 'poetry run', no hay venv).
       - name: Configurar DVC remoto
         run: |
-          poetry run python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          poetry run python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -129,34 +140,33 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Instalar Poetry
-        run: pipx install poetry
-
-      # CORRECCIÓN: mismo 'id' que en build-test.
       - name: Set up Python
         id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'poetry'
+          cache: 'pip'
 
-      # CORRECCIÓN CLAVE: 'poetry env use' con el intérprete de setup-python.
+      # CORRECCIÓN CLAVE: Poetry con el Python de setup-python (no pipx).
+      - name: Instalar Poetry
+        run: python -m pip install poetry
+
       - name: Instalar dependencias
         run: |
-          poetry env use "${{ steps.setup-python.outputs.python-path }}"
+          poetry config virtualenvs.create false
           poetry install --no-interaction --no-ansi --sync
 
       - name: Verificar DVC instalado
         run: |
-          poetry run python -m dvc --version || {
-            echo "::error::DVC no está en el entorno de Poetry. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+          python -m dvc --version || {
+            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
             exit 1
           }
 
       - name: Configurar DVC remoto
         run: |
-          poetry run python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          poetry run python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
