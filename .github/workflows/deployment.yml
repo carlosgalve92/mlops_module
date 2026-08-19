@@ -50,7 +50,7 @@ env:
   CPU: "0.5"
   MEMORY: "1.0Gi"
   PORT: "8000"
-  MIN_REPLICAS: "1"
+  MIN_REPLICAS: "0"
   MAX_REPLICAS: "2"
 
 jobs:
