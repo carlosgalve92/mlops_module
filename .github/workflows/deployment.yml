@@ -85,7 +85,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          # cache: 'poetry'
+          cache: 'poetry'
 
       # Instala el proyecto con Poetry y, con él, la CLI de DVC que se usa después.
       # 'virtualenvs.create false' instala en el Python del runner, de modo que
@@ -93,8 +93,16 @@ jobs:
       # REQUISITO: 'dvc[azure]' debe estar declarado como dependencia en pyproject.toml.
       - name: Instalar dependencias
         run: |
-          poetry config virtualenvs.create false
+          # poetry config virtualenvs.create false
           poetry install --no-interaction --no-ansi
+      
+      # CLAVE: expone el bin/ del virtualenv de Poetry al PATH de TODAS las steps
+      # siguientes. Funciona venga el venv del caché o se cree de cero, porque
+      # 'poetry env info --path' devuelve siempre la ruta real del entorno activo.
+      # A partir de aquí, 'dvc' (y cualquier binario del venv) está en el PATH
+      # sin necesidad de 'poetry run'.
+      - name: Exponer venv de Poetry al PATH
+        run: echo "$(poetry env info --path)/bin" >> "$GITHUB_PATH"
 
       - name: Verificar DVC
         run: |
