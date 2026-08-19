@@ -9,42 +9,19 @@
 
 name: Deployment
 
-# -----------------------------------------------------------------------------
-# Disparadores: QUÉ lanza el workflow.
-#   - push a main  -> despliegue automático al integrar en la rama principal.
-#   - workflow_dispatch -> permite ejecutarlo manualmente desde la pestaña Actions.
-# -----------------------------------------------------------------------------
 on:
   push:
     branches: [ main ]
-    # paths:                 # (opcional) dispara solo si cambian estas rutas
-    #   - 'src/**'
-  # schedule:                # (opcional) ejecución programada
-  #   - cron: '0 6 * * 1'    # lunes a las 06:00 UTC (min hora díaMes mes díaSemana)
   workflow_dispatch:
 
-# -----------------------------------------------------------------------------
-# Concurrencia: si llega un push nuevo mientras un despliegue está en curso,
-# se cancela el anterior. Evita que dos despliegues de la misma rama se pisen.
-# -----------------------------------------------------------------------------
 concurrency:
   group: cd-api-${{ github.ref }}
   cancel-in-progress: true
 
-# -----------------------------------------------------------------------------
-# Permisos del GITHUB_TOKEN (mínimo privilegio).
-#   - contents: read  -> solo lectura del repo (necesario para el checkout).
-#   - id-token: write -> imprescindible para el login OIDC contra Azure.
-# -----------------------------------------------------------------------------
 permissions:
   contents: read
   id-token: write
 
-# -----------------------------------------------------------------------------
-# Variables reutilizables en todo el workflow.
-# NOTA: MEMORY "1.0Gi" con CPU "0.5" es una combinación válida en ACA
-#       (Consumption): 0.25->0.5Gi, 0.5->1.0Gi, 0.75->1.5Gi, 1.0->2.0Gi...
-# -----------------------------------------------------------------------------
 env:
   IMAGE_REPO: containeregistrymlops
   CPU: "0.5"
@@ -56,73 +33,52 @@ env:
 jobs:
   # ===========================================================================
   # JOB 1 · build-test
-  # Construye la imagen y la valida en el propio runner (sin publicarla).
   # ===========================================================================
   build-test:
     runs-on: ubuntu-latest
     steps:
-      # Descarga el código del repositorio en el runner. Es el primer paso de
-      # casi cualquier workflow: sin él no hay ni Dockerfile ni fuentes.
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Arranca el ssh-agent y carga la clave privada.
-      # CORRECCIÓN: se coloca ANTES de instalar dependencias porque 'pip install .'
-      # puede tirar de dependencias privadas por git+ssh. Además, esta clave la
-      # reutiliza el build de Docker mediante el montaje SSH de BuildKit (ssh: default).
       - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Instala Poetry ANTES de setup-python, requisito para que 'cache: poetry'
-      # (paso siguiente) pueda cachear las dependencias. pipx viene preinstalado.
       - name: Instalar Poetry
         run: pipx install poetry
 
-      # Prepara Python y cachea las dependencias de Poetry usando poetry.lock.
+      # CORRECCIÓN: 'id: setup-python' para referenciar la ruta EXACTA del intérprete.
       - name: Set up Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: 'poetry'
 
-      # Instala el proyecto con Poetry y, con él, la CLI de DVC que se usa después.
-      # 'virtualenvs.create false' instala en el Python del runner, de modo que
-      # 'dvc' queda directamente en el PATH (sin necesidad de 'poetry run').
-      # REQUISITO: 'dvc[azure]' debe estar declarado como dependencia en pyproject.toml.
-      # CORRECCIÓN: '--sync' fuerza que el entorno quede EXACTAMENTE como el lock,
-      # evitando que un caché viejo deje dependencias obsoletas sin DVC.
+      # CORRECCIÓN CLAVE: se elimina 'virtualenvs.create false' (causaba que Poetry
+      # instalara en un Python ambiguo, por eso 'python -m dvc' del runner no lo veía)
+      # y se fuerza a Poetry a usar el intérprete de setup-python con 'poetry env use'.
+      # Todo lo que use el proyecto se invoca luego con 'poetry run'.
       - name: Instalar dependencias
         run: |
-          poetry config virtualenvs.create false
+          poetry env use "${{ steps.setup-python.outputs.python-path }}"
           poetry install --no-interaction --no-ansi --sync
 
-      # CORRECCIÓN: verificación temprana de que DVC quedó instalado. Si el
-      # poetry.lock estaba desincronizado con pyproject.toml, 'poetry install'
-      # puede instalar un set antiguo SIN DVC y terminar OK; entonces el paso
-      # siguiente fallaría con un críptico 'dvc: command not found'. Este check
-      # falla rápido y con un mensaje claro que apunta a regenerar el lock.
+      # CORRECCIÓN: verificación de DVC dentro del venv de Poetry (mensaje claro).
       - name: Verificar DVC instalado
         run: |
-          python -m dvc --version || {
-            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+          poetry run python -m dvc --version || {
+            echo "::error::DVC no está en el entorno de Poetry. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
             exit 1
           }
 
-      # Configura las credenciales del remoto DVC SOLO en local (.dvc/config.local,
-      # que no se commitea). Ese fichero se inyecta después como secreto en el build
-      # para que el Dockerfile pueda hacer 'dvc pull' de los datos/modelos.
-      # CORRECCIÓN: se invoca DVC como módulo ('python -m dvc') en vez de 'dvc' a
-      # secas, para no depender de que el script de consola quede en el PATH.
+      # CORRECCIÓN: DVC vía 'poetry run python -m dvc' (usa el venv correcto).
       - name: Configurar DVC remoto
         run: |
-          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          poetry run python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          poetry run python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
-      # Crea un builder de Buildx con driver docker-container. Necesario para usar
-      # montajes SSH/secretos de BuildKit y la caché avanzada. install:true lo deja
-      # como builder por defecto.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -130,26 +86,18 @@ jobs:
           buildkitd-flags: --debug
           install: true
 
-      # Construye la imagen y la CARGA en el daemon local (load: true) SIN publicarla
-      # (push: false), de modo que el siguiente paso pueda arrancarla y probarla.
       - name: Build (Buildx)
         uses: docker/build-push-action@v6
         with:
           context: .
-          # platforms: linux/amd64,linux/arm64   # (opcional) build multi-arquitectura
           push: false
           load: true
           tags: ${{ env.IMAGE_REPO }}:test
-          # Expone el ssh-agent al build (para 'RUN --mount=type=ssh' en el Dockerfile).
           ssh: |
             default
-          # Inyecta las credenciales DVC como secreto de BuildKit (para 'dvc pull').
           secrets: |
             id=dvc_secrets,src=.dvc/config.local
 
-      # Smoke test: arranca el contenedor y comprueba el endpoint de salud.
-      # CORRECCIÓN: se usa ${{ env.PORT }} (coherente con la variable) y un bucle de
-      # reintentos en vez de un 'sleep 5' fijo, que era frágil si la API tarda en subir.
       - name: Smoke test container
         run: |
           docker run -d -p ${{ env.PORT }}:${{ env.PORT }} --name api ${{ env.IMAGE_REPO }}:test
@@ -167,8 +115,6 @@ jobs:
 
   # ===========================================================================
   # JOB 2 · release
-  # Solo se ejecuta si build-test terminó OK (needs) y estamos en main (if).
-  # Publica la imagen en ACR y despliega una nueva revisión en ACA.
   # ===========================================================================
   release:
     needs: build-test
@@ -178,7 +124,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Igual que en build-test: ssh-agent antes de instalar dependencias.
       - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -187,31 +132,31 @@ jobs:
       - name: Instalar Poetry
         run: pipx install poetry
 
+      # CORRECCIÓN: mismo 'id' que en build-test.
       - name: Set up Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: 'poetry'
 
-      # CORRECCIÓN: '--sync' igual que en build-test.
+      # CORRECCIÓN CLAVE: 'poetry env use' con el intérprete de setup-python.
       - name: Instalar dependencias
         run: |
-          poetry config virtualenvs.create false
+          poetry env use "${{ steps.setup-python.outputs.python-path }}"
           poetry install --no-interaction --no-ansi --sync
 
-      # CORRECCIÓN: misma verificación temprana de DVC que en build-test.
       - name: Verificar DVC instalado
         run: |
-          python -m dvc --version || {
-            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+          poetry run python -m dvc --version || {
+            echo "::error::DVC no está en el entorno de Poetry. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
             exit 1
           }
 
-      # CORRECCIÓN: DVC como módulo ('python -m dvc') para no depender del PATH.
       - name: Configurar DVC remoto
         run: |
-          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          poetry run python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          poetry run python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -220,8 +165,6 @@ jobs:
           buildkitd-flags: --debug
           install: true
 
-      # Login a Azure mediante OIDC: GitHub emite un token de identidad efímero y
-      # Azure lo valida contra una credencial federada. No hay secreto de larga vida.
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -229,29 +172,19 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Autentica el Docker local contra el ACR reutilizando la sesión de az.
       - name: ACR login
         run: az acr login -n "${{ secrets.AZURE_ACR_NAME }}"
 
-      # Obtiene el "login server" del ACR (p. ej. miacr.azurecr.io) y lo expone como
-      # output para reutilizarlo en los pasos siguientes.
-      # CORRECCIÓN: '$(...)' ya elimina el salto de línea final, así que no hace falta
-      # el fichero temporal ni 'tr -d'; el paso queda más simple y robusto.
       - name: Get ACR login server
         id: acr
         run: |
           login_server=$(az acr show -n "${{ secrets.AZURE_ACR_NAME }}" --query loginServer -o tsv)
           echo "login_server=$login_server" >> "$GITHUB_OUTPUT"
 
-      # Construye y PUBLICA la imagen final en el ACR, etiquetada con el SHA del commit
-      # (gh-<sha>) para trazabilidad. Usa caché remota en el propio ACR para acelerar.
-      # CORRECCIÓN: se elimina 'no-cache: true', que era contradictorio con cache-from/
-      # cache-to (forzaba build desde cero e ignoraba la caché que sí se exportaba).
       - name: Build & Push to ACR (Buildx)
         uses: docker/build-push-action@v6
         with:
           context: .
-          # platforms: linux/amd64,linux/arm64   # (opcional) build multi-arquitectura
           push: true
           tags: ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_REPO }}:gh-${{ github.sha }}
           cache-from: type=registry,ref=${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_REPO }}:buildcache
@@ -261,14 +194,11 @@ jobs:
           secrets: |
             id=dvc_secrets,src=.dvc/config.local
 
-      # Asegura la extensión 'containerapp' de la CLI sin prompts interactivos, que
-      # en CI harían fallar el paso siguiente si la extensión no estuviera instalada.
       - name: Preparar Azure CLI (extensión containerapp)
         run: |
           az config set extension.use_dynamic_install=yes_without_prompt
           az extension add --name containerapp --upgrade --only-show-errors
 
-      # Despliega la nueva imagen: ACA crea automáticamente una nueva revisión.
       - name: Deploy to ACA (new revision)
         run: |
           IMAGE="${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_REPO }}:gh-${{ github.sha }}"
@@ -281,8 +211,6 @@ jobs:
             --min-replicas "${{ env.MIN_REPLICAS }}" \
             --max-replicas "${{ env.MAX_REPLICAS }}"
 
-      # Muestra la URL pública (FQDN del ingress) y la revisión activa, para verificar
-      # de un vistazo que el despliegue ha ido bien.
       - name: Show revision & URL
         run: |
           az containerapp show \

@@ -103,7 +103,7 @@ El flag `--src` coloca el código dentro de una carpeta `src/` (disposición rec
 poetry env use python3.12
 ```
 
-Con esto se crea el entorno virtual en `.venv` usando Python 3.10.
+Con esto se crea el entorno virtual en `.venv` usando Python 3.12
 
 ### 6. Instalar y añadir librerías
 
