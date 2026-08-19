@@ -110,8 +110,7 @@ COPY . .
 #          código no invalida la capa de dependencias. Cambias código -> rebuild rápido;
 #          cambias dependencias -> rebuild completo.
 
-RUN poetry install
-# --only main
+RUN poetry install --only main
 # QUÉ HACE: ahora sí instala TU paquete (sin volver a bajar dependencias, que ya están).
 # POR QUÉ: registra tu proyecto en el entorno para que sea importable/ejecutable.
 #          Es rápido porque el trabajo pesado ya se hizo antes.

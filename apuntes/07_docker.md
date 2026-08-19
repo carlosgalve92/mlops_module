@@ -214,7 +214,7 @@ El flujo completo es: **construir la imagen → subirla al ACR → conceder perm
 ### Requisitos previos
 
 - Una cuenta de Azure con una **suscripción activa** y permisos para crear recursos y asignar roles (rol `Owner`, o la combinación `Contributor` + `User Access Administrator` sobre el grupo de recursos).
-- Docker instalado en la máquina desde la que se sube la imagen. Para autenticarse con `az login --identity`, esa máquina debe ser un recurso de Azure con una **identidad administrada** asignada (p. ej. una VM de Azure) que tenga el rol `AcrPush` y `Reader` sobre el registro.
+- Docker instalado en la máquina desde la que se sube la imagen. Para autenticarse con `az login --identity`, esa máquina debe ser un recurso de Azure con una **identidad administrada** asignada (p. ej. una VM de Azure) que tenga el rol `AcrPush` sobre el registro.
 
 ### Paso 1: crear el grupo de recursos (portal)
 
@@ -247,13 +247,13 @@ az login --identity
 #    Para una identidad de usuario concreta: az login --identity --username <client_id>
 
 # 2. Obtener credenciales temporales del registro para Docker
-az acr login --name miregistro
+az acr login --name containeregistrymlops
 
 # 3. Etiquetar la imagen local con la ruta del ACR
-docker tag mi-app:v1 miregistro.azurecr.io/mi-app:v1
+docker tag appmlops:v1 containeregistrymlops.azurecr.io/appmlops:v1
 
 # 4. Subir la imagen
-docker push miregistro.azurecr.io/mi-app:v1
+docker push containeregistrymlops.azurecr.io/appmlops:v1
 ```
 
 `az acr login` configura el cliente de Docker con un *token* temporal derivado de la identidad; **no** almacena usuario ni contraseña. Para comprobar que la imagen quedó almacenada, en el portal abre el registro → **Servicios** → **Repositorios**; debería aparecer `mi-app` con su etiqueta `v1`.
@@ -268,11 +268,11 @@ TAG=gh-$(git rev-parse HEAD)        # p. ej. gh-a1b2c3d4...  (40 caracteres)
 
 # Autenticación (igual que arriba)
 az login --identity
-az acr login --name miregistro
+az acr login --name containeregistrymlops
 
 # Construir, etiquetar y subir con la etiqueta del commit
-docker build -t miregistro.azurecr.io/mi-app:$TAG .
-docker push miregistro.azurecr.io/mi-app:$TAG
+docker build -t containeregistrymlops.azurecr.io/appmlops:$TAG .
+docker push containeregistrymlops.azurecr.io/appmlops:$TAG
 
 echo "Etiqueta subida: $TAG"        # anótala para seleccionarla al crear la app
 ```
@@ -285,17 +285,7 @@ az acr repository show-tags --name miregistro --repository mi-app --output table
 
 > El *hash* solo refleja lo que está **confirmado** en Git. Si construyes con cambios locales sin confirmar, la etiqueta no representará fielmente el código; confirma (*commit*) antes de construir.
 
-### Paso 4: crear el entorno de Container Apps (portal)
-
-El **entorno** de Container Apps es la frontera de red y de observabilidad que comparten las apps, y es quien aloja la **identidad de sistema** que se usará para descargar la imagen. Debe existir antes de crear la app para poder seleccionarlo:
-
-1. Busca **"Container Apps Environments"** (Entornos de Container Apps) en el portal y pulsa **Crear**.
-2. En **Aspectos básicos**: selecciona la **suscripción**, el **grupo de recursos**, asigna un **nombre** (p. ej. `mi-entorno`) y la **región**.
-3. Pulsa **Revisar y crear** → **Crear**.
-
-> No es necesario habilitar la identidad del entorno ni asignar el rol `AcrPull` a mano: el asistente de creación de la app lo hace **automáticamente** al elegir la identidad del entorno (ver Paso 5). Si se prefiere, puede habilitarse de antemano en **Entorno → Configuración → Identidad → Asignada por el sistema**.
-
-### Paso 5: crear la Container App y configurar la autenticación del registro (portal)
+### Paso 4: crear la Container App y configurar la autenticación del registro (portal)
 
 1. Busca **"Container Apps"** en la barra superior y pulsa **Crear**.
 2. En la pestaña **Aspectos básicos**:
