@@ -85,7 +85,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'poetry'
+          # cache: 'poetry'
 
       # Instala el proyecto con Poetry y, con él, la CLI de DVC que se usa después.
       # 'virtualenvs.create false' instala en el Python del runner, de modo que
