@@ -91,18 +91,34 @@ jobs:
       # 'virtualenvs.create false' instala en el Python del runner, de modo que
       # 'dvc' queda directamente en el PATH (sin necesidad de 'poetry run').
       # REQUISITO: 'dvc[azure]' debe estar declarado como dependencia en pyproject.toml.
+      # CORRECCIÓN: '--sync' fuerza que el entorno quede EXACTAMENTE como el lock,
+      # evitando que un caché viejo deje dependencias obsoletas sin DVC.
       - name: Instalar dependencias
         run: |
           poetry config virtualenvs.create false
-          poetry install --no-interaction --no-ansi
+          poetry install --no-interaction --no-ansi --sync
+
+      # CORRECCIÓN: verificación temprana de que DVC quedó instalado. Si el
+      # poetry.lock estaba desincronizado con pyproject.toml, 'poetry install'
+      # puede instalar un set antiguo SIN DVC y terminar OK; entonces el paso
+      # siguiente fallaría con un críptico 'dvc: command not found'. Este check
+      # falla rápido y con un mensaje claro que apunta a regenerar el lock.
+      - name: Verificar DVC instalado
+        run: |
+          python -m dvc --version || {
+            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+            exit 1
+          }
 
       # Configura las credenciales del remoto DVC SOLO en local (.dvc/config.local,
       # que no se commitea). Ese fichero se inyecta después como secreto en el build
       # para que el Dockerfile pueda hacer 'dvc pull' de los datos/modelos.
+      # CORRECCIÓN: se invoca DVC como módulo ('python -m dvc') en vez de 'dvc' a
+      # secas, para no depender de que el script de consola quede en el PATH.
       - name: Configurar DVC remoto
         run: |
-          dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
       # Crea un builder de Buildx con driver docker-container. Necesario para usar
       # montajes SSH/secretos de BuildKit y la caché avanzada. install:true lo deja
@@ -177,15 +193,25 @@ jobs:
           python-version: "3.12"
           cache: 'poetry'
 
+      # CORRECCIÓN: '--sync' igual que en build-test.
       - name: Instalar dependencias
         run: |
           poetry config virtualenvs.create false
-          poetry install --no-interaction --no-ansi
+          poetry install --no-interaction --no-ansi --sync
 
+      # CORRECCIÓN: misma verificación temprana de DVC que en build-test.
+      - name: Verificar DVC instalado
+        run: |
+          python -m dvc --version || {
+            echo "::error::DVC no está instalado. Regenera el lock con 'poetry lock' y commitea pyproject.toml + poetry.lock."
+            exit 1
+          }
+
+      # CORRECCIÓN: DVC como módulo ('python -m dvc') para no depender del PATH.
       - name: Configurar DVC remoto
         run: |
-          dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
-          dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
+          python -m dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
+          python -m dvc remote modify origin --local sas_token   "${{ secrets.AZURE_SAS_TOKEN }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
