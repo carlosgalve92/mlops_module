@@ -95,7 +95,7 @@ jobs:
         run: |
           # poetry config virtualenvs.create false
           poetry install --no-interaction --no-ansi
-      
+
       # CLAVE: expone el bin/ del virtualenv de Poetry al PATH de TODAS las steps
       # siguientes. Funciona venga el venv del caché o se cree de cero, porque
       # 'poetry env info --path' devuelve siempre la ruta real del entorno activo.
@@ -206,7 +206,7 @@ jobs:
       # sin necesidad de 'poetry run'.
       - name: Exponer venv de Poetry al PATH
         run: echo "$(poetry env info --path)/bin" >> "$GITHUB_PATH"
-        
+
       - name: Configurar DVC remoto
         run: |
           dvc remote modify origin --local account_name "${{ secrets.AZURE_STORAGE_ACCOUNT }}"
